@@ -1,8 +1,37 @@
 (ns bowtie-json-schema.core
   (:require [clojure.stacktrace]
+            [clojure.string :as string]
             [clojure.data.json :as json]
             [json-schema.core :as json-schema])
+  (:import [java.io ByteArrayInputStream IOException UncheckedIOException]
+           [java.nio.charset StandardCharsets]
+           [org.everit.json.schema.loader SchemaClient SchemaLoader]
+           [org.json JSONObject JSONTokener])
   (:gen-class))
+
+(defn- registry-client
+  "A SchemaClient which retrieves schemas from a test case's registry,
+  and never from the network."
+  [registry]
+  (reify SchemaClient
+    (get [_ url]
+      (let [uri (first (string/split url #"#" 2))]
+        (if (contains? registry uri)
+          (ByteArrayInputStream. (.getBytes (json/write-str (registry uri)) StandardCharsets/UTF_8))
+          (throw (UncheckedIOException. (IOException. (str uri " is not in the registry")))))))))
+
+(defn- prepare-schema
+  "Load a test case's schema, retrieving the external schemas it refers to from
+  the case's registry. json-schema.core's own prepare-schema can only retrieve
+  them over the network or from the classpath, but its validate accepts a
+  schema loaded this way."
+  [test-case]
+  (-> (SchemaLoader/builder)
+      (.schemaClient (registry-client (get test-case "registry" {})))
+      (.schemaJson (JSONObject. (JSONTokener. (json/write-str (test-case "schema")))))
+      (.build)
+      (.load)
+      (.build)))
 
 (defn -main []
   (let [started (atom false)]
@@ -38,11 +67,12 @@
                                           (test-case "tests"))}
                           (try
                             {:seq (request "seq")
-                             :results (mapv #(try
-                                               (json-schema/validate (test-case "schema") (% "instance"))
-                                               {:valid true}
-                                               (catch clojure.lang.ExceptionInfo _ {:valid false}))
-                                            (test-case "tests"))}
+                             :results (let [schema (prepare-schema test-case)]
+                                        (mapv #(try
+                                                 (json-schema/validate schema (% "instance"))
+                                                 {:valid true}
+                                                 (catch clojure.lang.ExceptionInfo _ {:valid false}))
+                                              (test-case "tests")))}
                             (catch Throwable e
                               {:seq (request "seq")
                                :errored true
