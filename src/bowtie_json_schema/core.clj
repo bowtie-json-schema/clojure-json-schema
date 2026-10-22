@@ -71,7 +71,14 @@
                                         (mapv #(try
                                                  (json-schema/validate schema (% "instance"))
                                                  {:valid true}
-                                                 (catch clojure.lang.ExceptionInfo _ {:valid false}))
+                                                 (catch clojure.lang.ExceptionInfo e
+                                                   ;; Validation errors come with :errors. Anything else,
+                                                   ;; like "Unsupported JSON input" for an instance which
+                                                   ;; isn't an object or array, isn't a validation result.
+                                                   (if (contains? (ex-data e) :errors)
+                                                     {:valid false}
+                                                     {:errored true
+                                                      :context {:message (ex-message e)}})))
                                               (test-case "tests")))}
                             (catch Throwable e
                               {:seq (request "seq")
