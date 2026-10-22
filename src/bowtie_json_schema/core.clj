@@ -39,7 +39,7 @@
                           (try
                             {:seq (request "seq")
                              :results (mapv #(try
-                                               (json-schema/validate (test-case "schema") %)
+                                               (json-schema/validate (test-case "schema") (% "instance"))
                                                {:valid true}
                                                (catch clojure.lang.ExceptionInfo _ {:valid false}))
                                             (test-case "tests"))}
