@@ -30,16 +30,22 @@
                           {:ok false})
             "run" (do (assert @started "Not started!")
                       (let [test-case (request "case")]
-                        (try
+                        (if (= (request "output") "annotations")
                           {:seq (request "seq")
-                           :results (mapv #(try
-                                             (json-schema/validate (test-case "schema") %)
-                                             {:valid true}
-                                             (catch clojure.lang.ExceptionInfo _ {:valid false}))
+                           :results (mapv (fn [_]
+                                            {:skipped true
+                                             :message "clojure-json-schema does not support annotation collection"})
                                           (test-case "tests"))}
-                          (catch Throwable e
+                          (try
                             {:seq (request "seq")
-                             :errored true
-                             :context {:traceback (with-out-str (clojure.stacktrace/print-cause-trace e 4))}}))))
+                             :results (mapv #(try
+                                               (json-schema/validate (test-case "schema") %)
+                                               {:valid true}
+                                               (catch clojure.lang.ExceptionInfo _ {:valid false}))
+                                            (test-case "tests"))}
+                            (catch Throwable e
+                              {:seq (request "seq")
+                               :errored true
+                               :context {:traceback (with-out-str (clojure.stacktrace/print-cause-trace e 4))}})))))
             "stop" (do (assert @started "Not started!")
                        (System/exit 0))))))))
