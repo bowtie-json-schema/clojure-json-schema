@@ -25,16 +25,20 @@
   the case's registry. json-schema.core's own prepare-schema can only retrieve
   them over the network or from the classpath, but its validate accepts a
   schema loaded this way."
-  [test-case]
-  (-> (SchemaLoader/builder)
-      (.schemaClient (registry-client (get test-case "registry" {})))
-      (.schemaJson (JSONObject. (JSONTokener. (json/write-str (test-case "schema")))))
-      (.build)
-      (.load)
-      (.build)))
+  [test-case dialect]
+  (let [builder (-> (SchemaLoader/builder)
+                    (.schemaClient (registry-client (get test-case "registry" {})))
+                    (.schemaJson (JSONObject. (JSONTokener. (json/write-str (test-case "schema"))))))]
+    ;; everit reads schemas without a $schema as draft 4 unless told otherwise
+    (case dialect
+      "http://json-schema.org/draft-07/schema#" (.draftV7Support builder)
+      "http://json-schema.org/draft-06/schema#" (.draftV6Support builder)
+      builder)
+    (-> builder (.build) (.load) (.build))))
 
 (defn -main []
-  (let [started (atom false)]
+  (let [started (atom false)
+        dialect (atom nil)]
     (doseq [request (map json/read-str (line-seq (java.io.BufferedReader. *in*)))]
       (println
         (json/write-str
@@ -56,7 +60,8 @@
                           :os_version (System/getProperty "os.version")
                           :language_version (clojure-version)}})
             "dialect" (do (assert @started "Not started!")
-                          {:ok false})
+                          (reset! dialect (request "dialect"))
+                          {:ok true})
             "run" (do (assert @started "Not started!")
                       (let [test-case (request "case")]
                         (if (= (request "output") "annotations")
@@ -67,7 +72,7 @@
                                           (test-case "tests"))}
                           (try
                             {:seq (request "seq")
-                             :results (let [schema (prepare-schema test-case)]
+                             :results (let [schema (prepare-schema test-case @dialect)]
                                         (mapv #(try
                                                  (json-schema/validate schema (% "instance"))
                                                  {:valid true}
